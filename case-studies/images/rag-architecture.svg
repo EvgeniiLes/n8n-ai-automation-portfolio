@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 440" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#475569"/></marker>
+  </defs>
+  <rect width="960" height="440" fill="#ffffff"/>
+  <text x="24" y="34" font-size="20" font-weight="700" fill="#0f172a">RAG Knowledge Assistant: architecture</text>
+
+  <text x="24" y="72" font-size="13" font-weight="700" fill="#2563eb">WORKFLOW 07 · INGESTION (run once / on change)</text>
+  <g font-size="13" fill="#0f172a">
+    <rect x="24" y="86" width="150" height="56" rx="8" fill="#eff6ff" stroke="#2563eb"/><text x="99" y="119" text-anchor="middle">Markdown docs</text>
+    <rect x="224" y="86" width="150" height="56" rx="8" fill="#eff6ff" stroke="#2563eb"/><text x="299" y="108" text-anchor="middle">Split into chunks</text><text x="299" y="127" text-anchor="middle" font-size="11" fill="#475569">800 chars · 120 overlap</text>
+    <rect x="424" y="86" width="150" height="56" rx="8" fill="#eff6ff" stroke="#2563eb"/><text x="499" y="108" text-anchor="middle">OpenAI embeddings</text><text x="499" y="127" text-anchor="middle" font-size="11" fill="#475569">text-embedding-3-small</text>
+    <rect x="624" y="86" width="170" height="56" rx="8" fill="#dbeafe" stroke="#1d4ed8" stroke-width="2"/><text x="709" y="108" text-anchor="middle" font-weight="700">Qdrant</text><text x="709" y="127" text-anchor="middle" font-size="11" fill="#475569">vector + source metadata</text>
+  </g>
+  <g stroke="#475569" stroke-width="2" marker-end="url(#a)" fill="none">
+    <path d="M174 114H220"/><path d="M374 114H420"/><path d="M574 114H620"/>
+  </g>
+
+  <text x="24" y="206" font-size="13" font-weight="700" fill="#059669">WORKFLOW 08 · ASSISTANT (every question)</text>
+  <g font-size="13" fill="#0f172a">
+    <rect x="24" y="222" width="150" height="56" rx="8" fill="#ecfdf5" stroke="#059669"/><text x="99" y="255" text-anchor="middle">Telegram question</text>
+    <rect x="224" y="222" width="190" height="56" rx="8" fill="#d1fae5" stroke="#047857" stroke-width="2"/><text x="319" y="244" text-anchor="middle" font-weight="700">Claude agent</text><text x="319" y="263" text-anchor="middle" font-size="11" fill="#475569">+ chat memory</text>
+    <rect x="474" y="222" width="190" height="56" rx="8" fill="#ecfdf5" stroke="#059669"/><text x="569" y="244" text-anchor="middle">Retrieve top-4 chunks</text><text x="569" y="263" text-anchor="middle" font-size="11" fill="#475569">tool: company_knowledge_base</text>
+    <rect x="724" y="222" width="212" height="56" rx="8" fill="#ecfdf5" stroke="#059669"/><text x="830" y="244" text-anchor="middle">Answer + "Source: file.md"</text><text x="830" y="263" text-anchor="middle" font-size="11" fill="#475569">only from retrieved text</text>
+    <rect x="474" y="334" width="190" height="56" rx="8" fill="#fff7ed" stroke="#ea580c"/><text x="569" y="356" text-anchor="middle">Not found?</text><text x="569" y="375" text-anchor="middle" font-size="11" fill="#475569">log_knowledge_gap → Google Sheet</text>
+  </g>
+  <g stroke="#475569" stroke-width="2" marker-end="url(#a)" fill="none">
+    <path d="M174 250H220"/><path d="M414 250H470"/><path d="M664 250H720"/>
+    <path d="M319 278V362H470" stroke="#ea580c"/>
+    <path d="M709 142V196H569V218" stroke-dasharray="6 5" stroke="#1d4ed8"/>
+  </g>
+  <text x="640" y="190" font-size="11" fill="#1d4ed8">semantic search</text>
+</svg>
