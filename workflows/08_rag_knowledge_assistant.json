@@ -1,0 +1,294 @@
+{
+  "name": "GearUp 08 · RAG Knowledge Assistant (Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 8️⃣ Knowledge-base assistant (RAG agent)\nAsk in Telegram, e.g.:\n• *What is the return window for a damaged item?*\n• *What discount does a gym get on a 6,000 EUR order?*\n• *Can I promise a customer delivery by Friday?*\n\nThe agent **retrieves the relevant chunks from Qdrant**, answers only from them and **cites the source file**. If the knowledge base has no answer it says so and **logs the question to the `KB_Gaps` sheet**, so you know which documents are missing.",
+        "height": 320,
+        "width": 560,
+        "color": 4
+      },
+      "id": "7a1e0f83-1c2d-4e3f-8a4b-5c6d7e8f9a01",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -460
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "8b2f1094-2d3e-4f40-9b5c-6d7e8f9aab02",
+      "name": "Telegram trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "You are the knowledge assistant of GearUp, an online fitness equipment store. You help support agents and the owner find answers in the company knowledge base.\n\nRules:\n- ALWAYS call the `company_knowledge_base` tool before answering a policy, pricing, shipping, returns, warranty or wholesale question. You may call it more than once with different queries.\n- Answer ONLY from the retrieved text. Never invent policies, numbers or dates.\n- End every answer with a line `Source: <file name(s)>` using the `source` metadata of the chunks you used.\n- If the knowledge base does not contain the answer, say clearly that you could not find it, do NOT guess, and call `log_knowledge_gap` with the user's question.\n- Keep answers short: key fact first, then 1-3 bullet points. Answer in the language of the question (the knowledge base is in English; translate facts, keep numbers and currencies exact)."
+        }
+      },
+      "id": "9c30a1a5-3e4f-4051-8c6d-7e8f9aabbc03",
+      "name": "Knowledge Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1200,
+          "temperature": 0.1
+        }
+      },
+      "id": "ad41b2b6-4f50-4162-9d7e-8f9aabbccd04",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        140,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Telegram trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 10
+      },
+      "id": "be52c3c7-5a61-4273-8e8f-9aabbccdde05",
+      "name": "Chat memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        300,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "company_knowledge_base",
+        "toolDescription": "Searches the GearUp company knowledge base (shipping, returns, warranty, wholesale terms, internal staff rules). Input: a natural-language search query. Returns the most relevant text chunks with their source file.",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "id",
+          "value": "gearup_kb"
+        },
+        "topK": 4,
+        "includeDocumentMetadata": true,
+        "options": {}
+      },
+      "id": "cf63d4d8-6b72-4384-9f9a-abbccddeef06",
+      "name": "Qdrant knowledge base",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        520,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "d074e5e9-7c83-4495-8aab-bccddeeff007",
+      "name": "OpenAI Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Logs a question the knowledge base could not answer, so the team can add the missing document. Call it only when the knowledge base search returned nothing relevant.",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "KB_Gaps"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "question": "={{ $fromAI('question', 'The user question that the knowledge base could not answer', 'string') }}",
+            "asked_at": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "asked_by": "={{ $('Telegram trigger').first().json.message.from.username || $('Telegram trigger').first().json.message.from.first_name }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "asked_at",
+              "displayName": "asked_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "asked_by",
+              "displayName": "asked_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e185f6fa-8d94-45a6-9bbc-cddeeff00108",
+      "name": "log_knowledge_gap",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        740,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram trigger').first().json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "f296a70b-9ea5-46b7-8cce-deff00112209",
+      "name": "Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        680,
+        0
+      ],
+      "webhookId": "c2d3e4f5-a6b7-4c8d-9e0f-1a2b3c4d5e6f"
+    }
+  ],
+  "connections": {
+    "Telegram trigger": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Agent": {
+      "main": [
+        [
+          {
+            "node": "Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant knowledge base": {
+      "ai_tool": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant knowledge base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log_knowledge_gap": {
+      "ai_tool": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
