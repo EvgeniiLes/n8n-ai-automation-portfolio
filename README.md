@@ -41,6 +41,10 @@ n8n · Claude (Anthropic API) · AI Agent + tools · RAG / Qdrant vector store �
 - [AI Lead Qualification & CRM Routing](case-studies/03-lead-qualification.md)
 - [Owner AI Agent & Daily Business Report](case-studies/04-owner-agent-report.md)
 
+## Related project
+
+- [mcp-gearup-ops](https://github.com/EvgeniiLes/mcp-gearup-ops): a Python **MCP server** for the same GearUp store (sales, stock, orders, leads, FAQ and a guarded promo-code tool), usable from Claude Desktop, Claude Code or Cursor, with end-to-end tests
+
 ## Reliability
 
 Every workflow includes retries on external calls, a shared error-handling workflow (Telegram alert + error log), input validation and duplicate protection.
