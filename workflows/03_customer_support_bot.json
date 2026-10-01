@@ -1,0 +1,730 @@
+{
+  "name": "GearUp 03 · Customer Support AI Bot (Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 3️⃣ 24/7 customer support\nCustomers write to the GearUp bot:\n• questions about shipping, payment, warranty → answered from the **FAQ** knowledge base\n• *Where is my order?* → order lookup (order number **+ email** check for privacy)\n• *I want to return…* → return request created in `Returns`\n• angry customer / asks for a human → **handoff**: manager gets an alert with the conversation\nEvery dialog is logged to `SupportLog`.",
+        "height": 300,
+        "width": 540,
+        "color": 4
+      },
+      "id": "1256c1e0-21b5-40b5-aa91-23c51fcc5257",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -440
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "7c72c307-5144-4058-aba6-6dc0efb136e9",
+      "name": "Support bot trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "67a108b4-2b56-4e9d-853f-8a83f6050cfc"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const m = $json.message || {};\nreturn { json: {\n  chat_id: m.chat?.id,\n  user: [m.from?.first_name, m.from?.last_name].filter(Boolean).join(' ') + (m.from?.username ? ' @' + m.from.username : ''),\n  text: (m.text || '').trim() || '[non-text message]',\n  is_start: (m.text || '').startsWith('/start')\n}};"
+      },
+      "id": "e6a4d324-ebb4-4824-9d3a-8c2fc0892b55",
+      "name": "Prepare message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7e8a3e6d-f482-4b67-bb99-31da77050152",
+              "leftValue": "={{ $json.is_start }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4e01048d-c21b-425c-af22-a9e41b3066a6",
+      "name": "Is /start?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "👋 Hi! I'm the GearUp assistant.\n\nI can help you with:\n📦 order status\n↩️ returns & exchanges\n🚚 shipping, payment, warranty\n🏋️ choosing equipment\n\nJust type your question. Need a human? Say so any time.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d386df2a-d992-4c85-9e50-7b1181037bf5",
+      "name": "Welcome message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        -180
+      ],
+      "webhookId": "990133d6-3aa2-4186-a27a-c15b3f06cbca"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "=You are the customer support assistant of GearUp, an online store of fitness equipment (dumbbells, kettlebells, yoga mats, recovery, accessories).\nToday: {{ $now.toFormat('yyyy-MM-dd') }}. Customer name in Telegram: {{ $json.user }}.\n\nHow to work:\n1. Policy questions (shipping, returns, payment, warranty, B2B, contacts) → ALWAYS call \"Search FAQ\" and answer only from it. Don't invent policies.\n2. Order status → ask for the order number (format GU-1234) AND the email used for the order. Call \"Get order\". Share details only if the email matches the order; otherwise say you can't find an order with that combination.\n3. Return → verify the order the same way, check it was delivered less than 30 days ago, ask for the reason, then call \"Create return request\". Tell the customer a return label will be emailed within 24 hours.\n4. Product advice → recommend from GearUp categories, keep it short.\n5. Escalate to a human when: the customer asks for a person, is angry or threatens a bad review, the problem is damaged/missing item, or you can't solve it in 2 attempts. In that case reply politely that a manager will contact them shortly and put the tag [ESCALATE] at the very end of your message.\n\nStyle: friendly, short (max 5 sentences), ALWAYS in the language of the customer's latest message (English message → English reply), even if the FAQ or order data is in another language, no markdown tables.",
+          "maxIterations": 8
+        }
+      },
+      "id": "2365d77a-1ae5-4302-ae5b-297cfb35c70e",
+      "name": "Support AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        700,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1500,
+          "temperature": 0.3
+        }
+      },
+      "id": "205bfe6f-fc7f-4b75-a97e-b5624e71ba45",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        460,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Prepare message').first().json.chat_id }}",
+        "contextWindowLength": 12
+      },
+      "id": "9dc27375-3d86-4463-9d5c-833b5590b20b",
+      "name": "Conversation memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        600,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Knowledge base with GearUp policies: shipping, returns, payment, warranty, B2B, product tips, contacts. Returns all Q&A pairs.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "FAQ"
+        },
+        "options": {}
+      },
+      "id": "db293679-0f8e-4a55-b524-ac70d2b7e307",
+      "name": "Search FAQ",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        740,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Finds an order by its number. Returns created_at, customer_name, customer_email, total, status, tracking.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Orders"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "order_id",
+              "lookupValue": "={{ $fromAI('order_id', 'Order number in format GU-1234', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "41e55654-1ef4-404d-bd96-4d0a12474d4c",
+      "name": "Get order",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns the items of an order by order number.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "OrderLines"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "order_id",
+              "lookupValue": "={{ $fromAI('order_id', 'Order number in format GU-1234', 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ef55da2a-c412-4a55-9fc0-2ef6cc0e94fc",
+      "name": "Get order items",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1020,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Creates a return request after the order was verified. Use once per return.",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Returns"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "return_id": "={{ 'R-' + $now.toMillis().toString(36).toUpperCase() }}",
+            "created_at": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "order_id": "={{ $fromAI('order_id', 'Verified order number', 'string') }}",
+            "chat_id": "={{ $('Prepare message').first().json.chat_id }}",
+            "customer": "={{ $fromAI('customer', 'Customer full name from the order', 'string') }}",
+            "reason": "={{ $fromAI('reason', 'Return reason in a few words', 'string') }}",
+            "items": "={{ $fromAI('items', 'Items to return, comma separated', 'string') }}",
+            "status": "requested"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "return_id",
+              "displayName": "return_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "order_id",
+              "displayName": "order_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer",
+              "displayName": "customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "items",
+              "displayName": "items",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cab023c5-fd8f-4301-800f-be274c320aa4",
+      "name": "Create return request",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1160,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const out = String($json.output || '');\nconst escalated = out.includes('[ESCALATE]');\nconst p = $('Prepare message').first().json;\nreturn { json: { ...p, answer: out.replace('[ESCALATE]', '').trim(), escalated } };"
+      },
+      "id": "c18c473a-90b5-4384-8a0f-bbdcb7706b3b",
+      "name": "Detect handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.answer }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "dd760ae2-697d-4643-af7c-8c18c95aa9c3",
+      "name": "Reply to customer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1540,
+        -120
+      ],
+      "webhookId": "fa63c7d9-4c54-478c-be1f-69a81deb9788"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "SupportLog"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "chat_id": "={{ $json.chat_id }}",
+            "user": "={{ $json.user }}",
+            "question": "={{ $json.text }}",
+            "answer": "={{ $json.answer }}",
+            "escalated": "={{ $json.escalated }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "user",
+              "displayName": "user",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "answer",
+              "displayName": "answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "escalated",
+              "displayName": "escalated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f556644b-0f0a-416e-9f66-50b80213c707",
+      "name": "Log conversation",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a38ce01a-c792-45e3-bde5-fce835c4684a",
+              "leftValue": "={{ $json.escalated }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "78f8588c-9588-45eb-95c4-86cd67129169",
+      "name": "Needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst j = $json;\nreturn { json: { text: `🙋 <b>Customer needs a manager</b>\\n👤 ${esc(j.user)} (chat <code>${j.chat_id}</code>)\\n\\n💬 <i>${esc(j.text.slice(0,500))}</i>\\n\\n🤖 Bot replied: ${esc(j.answer.slice(0,300))}` } };"
+      },
+      "id": "ff09701a-3994-470e-a2dc-08c7bcffdea7",
+      "name": "Build handoff alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "b0db4569-2795-4cf1-9fbe-ca5a52ea67fd",
+      "name": "Alert manager",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1980,
+        220
+      ],
+      "webhookId": "4c560975-4c99-4811-99b3-1dbba171b026"
+    }
+  ],
+  "connections": {
+    "Support bot trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare message": {
+      "main": [
+        [
+          {
+            "node": "Is /start?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is /start?": {
+      "main": [
+        [
+          {
+            "node": "Welcome message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Detect handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect handoff": {
+      "main": [
+        [
+          {
+            "node": "Reply to customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log conversation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a human?": {
+      "main": [
+        [
+          {
+            "node": "Build handoff alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build handoff alert": {
+      "main": [
+        [
+          {
+            "node": "Alert manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search FAQ": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get order": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get order items": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create return request": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

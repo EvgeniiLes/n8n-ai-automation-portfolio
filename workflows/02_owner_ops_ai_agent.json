@@ -1,0 +1,512 @@
+{
+  "name": "GearUp 02 · Owner Ops AI Agent (Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 2️⃣ AI agent for the store owner\nAsk in plain language in Telegram:\n• *How much did we sell yesterday?*\n• *What is running out of stock?*\n• *Top-5 products this month*\n• *Any hot leads this week?*\n• *Create a promo code AUTUMN15 for 15% until Oct 31*\n\nThe agent decides which tools to call (read sheets, calculate, create promo). Only the owner's chat ID is allowed.",
+        "height": 300,
+        "width": 520,
+        "color": 4
+      },
+      "id": "15c13b06-f5f8-4414-ba17-604a5233e4db",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "1a87c483-df33-4243-a4e2-f72d14d0c48a",
+      "name": "Owner bot trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "54efef4d-8e0b-427f-a87a-17187e8fd8b6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea16fcb3-8a63-4dba-9a2e-de53cdce0520",
+              "leftValue": "={{ String($json.message.chat.id) }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "YOUR_TELEGRAM_CHAT_ID"
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4411dba0-04d7-4114-880d-c7ec846a33c7",
+      "name": "Is owner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Owner bot trigger').first().json.message.chat.id }}",
+        "text": "⛔ This is a private assistant.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "a3e4d54f-562d-43e6-ab6a-af8ca736f1ad",
+      "name": "Access denied",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        500,
+        -240
+      ],
+      "webhookId": "4d2d3b68-1736-4f89-a0cd-1c6cdf1e6aa6"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "=You are the operations assistant of GearUp, an online fitness equipment store. You talk to the store owner in Telegram.\nCurrent date and time: {{ $now.setZone('Europe/Berlin').toFormat('yyyy-MM-dd HH:mm') }} (Europe/Berlin). Currency: USD.\n\nData (Google Sheets) available through tools:\n- Products: sku, name, category, price, stock, reorder_level. Low stock = stock <= reorder_level.\n- Orders: order_id, created_at, customer, total, status (processing/shipped/delivered).\n- OrderLines: order_id, created_at, sku, name, qty, price – use for product-level sales.\n- Leads: B2B leads with score and tier (hot/warm/cold).\n- Promo: create promo codes.\n\nRules:\n- Always fetch data with tools, never invent numbers. Use the calculator for sums.\n- Answer briefly, like a smart analyst: key number first, then 2-4 bullet points. Use emojis sparingly.\n- Answer in the language of the question.\n- Before creating a promo code make sure you have code, discount % and expiry date; if something is missing, ask.",
+          "maxIterations": 8
+        }
+      },
+      "id": "2eb10439-e573-463e-aafb-d3701ffd300a",
+      "name": "Ops AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        500,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1500,
+          "temperature": 0.2
+        }
+      },
+      "id": "8c9c0e9a-8dfb-428a-b12f-82ecf952149c",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        300,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Owner bot trigger').first().json.message.chat.id }}",
+        "contextWindowLength": 12
+      },
+      "id": "1b9bf77c-7b80-4c12-bc64-951731252fb6",
+      "name": "Chat memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        440,
+        260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f4d1c6c3-7ac5-4618-ad07-7c70a80b68e6",
+      "name": "Calculator",
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        580,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns all products with price, current stock and reorder level.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Products"
+        },
+        "options": {}
+      },
+      "id": "f69f1881-e90f-4ccd-9fe1-834484194d4d",
+      "name": "Get products",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns all orders with date, customer, total and status.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Orders"
+        },
+        "options": {}
+      },
+      "id": "ada9dc68-d76c-4e71-ad53-2ba972877f23",
+      "name": "Get orders",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        860,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns sold items per order: order_id, created_at, sku, name, qty, price. Use for best sellers and product sales.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "OrderLines"
+        },
+        "options": {}
+      },
+      "id": "dd908bb8-1239-4f0c-9cf7-e78744a41e5c",
+      "name": "Get order lines",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1000,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns B2B wholesale leads with AI score, tier and status.",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "id": "d09e1ea9-5570-4ac6-a70d-c4e98d1ea135",
+      "name": "Get leads",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1140,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Creates a new promo code. Use only when the owner explicitly asks to create one.",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Promo"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "code": "={{ $fromAI('code', 'Promo code, uppercase letters and digits, e.g. AUTUMN15', 'string') }}",
+            "discount_pct": "={{ $fromAI('discount_pct', 'Discount in percent, number 1-90', 'number') }}",
+            "valid_until": "={{ $fromAI('valid_until', 'Expiry date in format YYYY-MM-DD', 'string') }}",
+            "note": "={{ $fromAI('note', 'Short purpose of the promo', 'string') }}",
+            "created_at": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+            "created_by": "ops-agent"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "code",
+              "displayName": "code",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "discount_pct",
+              "displayName": "discount_pct",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "valid_until",
+              "displayName": "valid_until",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "note",
+              "displayName": "note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_by",
+              "displayName": "created_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c05cc744-3bf7-4f2c-9eca-c15e22ae7a40",
+      "name": "Create promo code",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "typeVersion": 4.5,
+      "position": [
+        1280,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Owner bot trigger').first().json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "0db14d5a-5db7-4773-b151-ed9e1dd98250",
+      "name": "Reply to owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        900,
+        -20
+      ],
+      "webhookId": "33e8c1af-b332-4cf5-9379-f538b14411d2"
+    }
+  ],
+  "connections": {
+    "Owner bot trigger": {
+      "main": [
+        [
+          {
+            "node": "Is owner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is owner?": {
+      "main": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Access denied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ops AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Reply to owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get products": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get orders": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get order lines": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get leads": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create promo code": {
+      "ai_tool": [
+        [
+          {
+            "node": "Ops AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

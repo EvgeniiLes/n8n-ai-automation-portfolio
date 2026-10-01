@@ -1,0 +1,697 @@
+{
+  "name": "GearUp 01 · B2B Lead Qualification (AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 1️⃣ Wholesale lead → AI scoring → CRM\nGyms and studios fill the wholesale form on the site.\n1. Validate & normalize the lead\n2. Enrich: fetch the company website\n3. Claude scores the lead 0-100 and drafts a personal first email\n4. Save to CRM (`Leads` sheet)\n5. Hot lead (≥70) → instant Telegram alert to sales\n6. Warm/hot → first-touch email sent automatically",
+        "height": 260,
+        "width": 520,
+        "color": 4
+      },
+      "id": "552a139f-6a06-4092-a499-ce739e4ca25b",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gearup-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0009fdb4-a3cf-4f1e-bc91-b35274b9b4bc",
+      "name": "Wholesale form webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "b4259dfd-a5e6-4e59-be77-3ad015ba6f85"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $json.body || $json;\nconst clean = v => String(v ?? '').trim();\nconst email = clean(b.email).toLowerCase();\nconst valid = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\nconst freeMail = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','mail.ru','yandex.ru','example.com'];\nlet website = clean(b.website);\nlet domain = website.replace(/^https?:\\/\\//,'').replace(/^www\\./,'').split('/')[0];\nif (!domain && valid) {\n  const d = email.split('@')[1];\n  if (!freeMail.includes(d)) domain = d;\n}\nreturn [{ json: {\n  lead_id: 'L-' + Date.now().toString(36).toUpperCase(),\n  created_at: new Date().toISOString().slice(0,16).replace('T',' '),\n  company: clean(b.company), contact_name: clean(b.contact_name), email, phone: clean(b.phone),\n  website: domain, size: clean(b.size), budget_usd: clean(b.budget_usd), message: clean(b.message).slice(0, 2000),\n  valid\n}}];"
+      },
+      "id": "7214813b-8cf3-4c07-9e04-2dbe4e16fd42",
+      "name": "Normalize & validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4c2e6d13-7f5f-401d-802b-6275ba531fe9",
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "28286e3b-0654-4350-83e9-1ab9233cff50",
+      "name": "Valid email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: false, error: 'Invalid email' } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "b0aeb287-440d-4ded-919c-3e43c4490b0d",
+      "name": "Respond 400",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, lead_id: $json.lead_id } }}",
+        "options": {}
+      },
+      "id": "65b70e9f-99b9-4690-a646-10a915d345dc",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.website ? 'https://' + $json.website : 'https://invalid.invalid' }}",
+        "options": {
+          "timeout": 8000,
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          },
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 3
+            }
+          }
+        }
+      },
+      "id": "36de987d-4cdd-40d9-b85c-388200f92d75",
+      "name": "Fetch company website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        -40
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const lead = $('Normalize & validate').first().json;\nconst html = typeof $json.html === 'string' ? $json.html : '';\nconst pick = re => (html.match(re) || [,''])[1].replace(/\\s+/g,' ').trim().slice(0, 300);\nreturn { json: { ...lead,\n  site_title: pick(/<title[^>]*>([^<]*)<\\/title>/i),\n  site_description: pick(/<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']*)/i),\n  site_reachable: html.length > 0\n}};"
+      },
+      "id": "847e9e82-54d0-4991-a9c9-efcbec2a6863",
+      "name": "Extract site info",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Wholesale lead:\nCompany: {{ $json.company || '—' }}\nContact: {{ $json.contact_name }} <{{ $json.email }}> {{ $json.phone }}\nSize: {{ $json.size || '—' }}\nBudget (USD): {{ $json.budget_usd || '—' }}\nMessage: {{ $json.message }}\nWebsite: {{ $json.website || '—' }} | reachable: {{ $json.site_reachable }}\nSite title: {{ $json.site_title }}\nSite description: {{ $json.site_description }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are a B2B sales analyst for GearUp, an online store of fitness equipment that sells wholesale to gyms, studios and clubs (10-25% volume discounts, delivery EU/UK/US/CA).\nScore the lead from 0 to 100:\n- business type fit (gym/studio/club/hotel/corporate = high, private person = low)\n- clear need (specific products, quantities) and timeline\n- budget size (>5000 USD high)\n- legitimacy (company domain email, working website)\nReturn ONLY valid JSON, no markdown:\n{\"score\": number, \"tier\": \"hot\"|\"warm\"|\"cold\", \"reason\": \"one sentence\", \"next_step\": \"one sentence for the sales manager\", \"products\": [\"GearUp product categories that fit\"], \"email_subject\": \"string\", \"email_body\": \"short friendly first email in the lead's language, max 120 words, signed 'Alex, GearUp B2B team', no placeholders\"}\nhot >= 70, warm 40-69, cold < 40."
+            }
+          ]
+        }
+      },
+      "id": "072f98f9-ea97-46a0-bc35-8bcbc76d89bd",
+      "name": "AI lead scoring",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1340,
+        -40
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1500,
+          "temperature": 0.2
+        }
+      },
+      "id": "c82c4ebf-ba9a-4217-af32-16348d1b88a0",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1360,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const lead = $('Extract site info').first().json;\nlet ai = {};\ntry {\n  const raw = String($json.text || '').replace(/```json|```/g, '').trim();\n  ai = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));\n} catch (e) {\n  ai = { score: 0, tier: 'review', reason: 'AI response could not be parsed – manual review', next_step: 'Check manually' };\n}\nconst score = Math.max(0, Math.min(100, Number(ai.score) || 0));\nreturn { json: { ...lead, score, tier: ai.tier || 'review', reason: ai.reason || '', next_step: ai.next_step || '',\n  products: (ai.products || []).join(', '), email_subject: ai.email_subject || '', email_body: ai.email_body || '', status: 'new' } };"
+      },
+      "id": "32858583-839b-4ca9-8676-05329c401b6e",
+      "name": "Parse AI result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1660,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "created_at": "={{ $json.created_at }}",
+            "company": "={{ $json.company }}",
+            "contact_name": "={{ $json.contact_name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "website": "={{ $json.website }}",
+            "size": "={{ $json.size }}",
+            "budget_usd": "={{ $json.budget_usd }}",
+            "message": "={{ $json.message }}",
+            "score": "={{ $json.score }}",
+            "tier": "={{ $json.tier }}",
+            "reason": "={{ $json.reason }}",
+            "next_step": "={{ $json.next_step }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "lead_id",
+              "displayName": "lead_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "size",
+              "displayName": "size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget_usd",
+              "displayName": "budget_usd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tier",
+              "displayName": "tier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "next_step",
+              "displayName": "next_step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "da113bc9-2f64-449c-9bec-33d6b87fe4dd",
+      "name": "Save to CRM (Leads)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1880,
+        -40
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e84395da-f64d-494d-9f9e-1374cc2fed50",
+              "leftValue": "={{ $('Parse AI result').first().json.score }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              },
+              "rightValue": 70
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3f66e3af-fd8b-4fc9-ad74-1918a7ebbbd1",
+      "name": "Hot lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2100,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst l = $('Parse AI result').first().json;\nreturn { json: { text:\n`🔥 <b>Hot B2B lead · ${l.score}/100</b>\n<b>${esc(l.company || 'No company')}</b> — ${esc(l.contact_name)}\n📧 ${esc(l.email)} ${l.phone ? '· 📞 ' + esc(l.phone) : ''}\n👥 ${esc(l.size || '—')} · 💰 ${esc(l.budget_usd || '—')} USD\n\n💬 <i>${esc(l.message.slice(0, 400))}</i>\n\n🧠 ${esc(l.reason)}\n👉 <b>Next:</b> ${esc(l.next_step)}\n🛒 ${esc(l.products)}` } };"
+      },
+      "id": "beeb7145-a002-47ac-b509-4d978a506803",
+      "name": "Build sales alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2320,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d1ecfdc7-03bd-49b9-af55-858a704ff653",
+      "name": "Alert sales in Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2540,
+        -160
+      ],
+      "webhookId": "01cfa1e5-9802-478b-9ef7-741456d2f0ba"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5542469b-d6ad-46e2-9785-7784466a610f",
+              "leftValue": "={{ $('Parse AI result').first().json.score }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              },
+              "rightValue": 40
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "e55ae549-7685-414c-a5ff-24363a11f152",
+      "name": "Worth an email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2100,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse AI result').first().json.email }}",
+        "subject": "={{ $('Parse AI result').first().json.email_subject }}",
+        "emailType": "text",
+        "message": "={{ $('Parse AI result').first().json.email_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "f836b10d-652a-43ca-8bb9-e968c076f6a9",
+      "name": "Send first-touch email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2320,
+        60
+      ],
+      "webhookId": "6aaeeb56-4d72-412a-a01d-91bcf1805c2c",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "Wholesale form webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize & validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & validate": {
+      "main": [
+        [
+          {
+            "node": "Valid email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid email?": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 400",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200": {
+      "main": [
+        [
+          {
+            "node": "Fetch company website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch company website": {
+      "main": [
+        [
+          {
+            "node": "Extract site info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract site info": {
+      "main": [
+        [
+          {
+            "node": "AI lead scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI lead scoring",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI lead scoring": {
+      "main": [
+        [
+          {
+            "node": "Parse AI result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI result": {
+      "main": [
+        [
+          {
+            "node": "Save to CRM (Leads)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to CRM (Leads)": {
+      "main": [
+        [
+          {
+            "node": "Hot lead?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Worth an email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot lead?": {
+      "main": [
+        [
+          {
+            "node": "Build sales alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build sales alert": {
+      "main": [
+        [
+          {
+            "node": "Alert sales in Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worth an email?": {
+      "main": [
+        [
+          {
+            "node": "Send first-touch email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

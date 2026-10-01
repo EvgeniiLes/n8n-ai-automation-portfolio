@@ -1,0 +1,354 @@
+{
+  "name": "GearUp 05 · Daily AI Business Report",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📊 Morning report at 09:00\nReads orders, sold items, stock and leads → calculates KPIs in code (exact numbers) → Claude writes a short commentary with 2 recommendations → Telegram to the owner.",
+        "height": 180,
+        "width": 500,
+        "color": 4
+      },
+      "id": "88eb0495-65c7-4e2b-98d1-adf305e23eff",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "08685bfd-576b-45f3-9988-95610b2a94dd",
+      "name": "Every day 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Orders"
+        },
+        "options": {}
+      },
+      "id": "c9e0baec-1af0-47be-bc8e-5c1decfb088a",
+      "name": "Read orders",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "OrderLines"
+        },
+        "options": {}
+      },
+      "id": "9dc8d796-4ed2-4698-a58f-ecd34f39604e",
+      "name": "Read order lines",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Products"
+        },
+        "options": {}
+      },
+      "id": "e94de54b-273b-42f1-ac0f-76f396b851e0",
+      "name": "Read products",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "id": "603318da-b234-4d14-bbaf-12780a673c4e",
+      "name": "Read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        0
+      ],
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const orders = $('Read orders').all().map(i => i.json);\nconst lines = $('Read order lines').all().map(i => i.json);\nconst products = $('Read products').all().map(i => i.json);\nconst leads = $('Read leads').all().map(i => i.json);\nconst day = d => String(d || '').slice(0, 10);\nconst y = $now.minus({ days: 1 }).toFormat('yyyy-MM-dd');\nconst weekAgo = $now.minus({ days: 8 }).toFormat('yyyy-MM-dd');\nconst yOrders = orders.filter(o => day(o.created_at) === y);\nconst revenue = yOrders.reduce((s, o) => s + Number(o.total || 0), 0);\nconst prev7 = orders.filter(o => day(o.created_at) >= weekAgo && day(o.created_at) < y);\nconst avg7 = prev7.reduce((s, o) => s + Number(o.total || 0), 0) / 7;\nconst bySku = {};\nfor (const l of lines.filter(l => day(l.created_at) === y)) {\n  bySku[l.name] = (bySku[l.name] || 0) + Number(l.qty || 0);\n}\nconst top = Object.entries(bySku).sort((a, b) => b[1] - a[1]).slice(0, 3);\nconst low = products.filter(p => Number(p.stock) <= Number(p.reorder_level)).map(p => `${p.name} (${p.stock})`);\nconst newLeads = leads.filter(l => day(l.created_at) === y);\nconst hot = newLeads.filter(l => l.tier === 'hot').length;\nconst k = {\n  date: y, orders: yOrders.length, revenue: Math.round(revenue * 100) / 100,\n  aov: yOrders.length ? Math.round(revenue / yOrders.length) : 0,\n  vs_avg_pct: avg7 ? Math.round((revenue / avg7 - 1) * 100) : null,\n  top_products: top.map(([n, q]) => `${n} ×${q}`), low_stock: low,\n  new_leads: newLeads.length, hot_leads: hot,\n  processing: orders.filter(o => o.status === 'processing').length\n};\nreturn [{ json: k }];"
+      },
+      "id": "996530f1-5a7c-4a5b-b97e-e9795e3bc3a1",
+      "name": "Calculate KPIs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=KPIs for {{ $json.date }}:\n{{ JSON.stringify($json, null, 2) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are a concise e-commerce analyst for GearUp (fitness equipment store). Based on the KPIs, write 2-3 short sentences of insight and exactly 2 concrete recommendations for today (restock, promo, follow up leads, etc). Plain text, no markdown, max 80 words."
+            }
+          ]
+        }
+      },
+      "id": "eaa9ced0-bd9c-44cf-b0fa-e1994a6dca57",
+      "name": "AI commentary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1500,
+          "temperature": 0.4
+        }
+      },
+      "id": "c0af644e-b04a-4b9c-845c-559b1c4bdfee",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1320,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst k = $('Calculate KPIs').first().json;\nconst trend = k.vs_avg_pct === null ? '' : (k.vs_avg_pct >= 0 ? ` (▲ ${k.vs_avg_pct}% vs 7-day avg)` : ` (▼ ${Math.abs(k.vs_avg_pct)}% vs 7-day avg)`);\nconst text = `☀️ <b>GearUp · report for ${k.date}</b>\n\n💰 Revenue: <b>$${k.revenue.toLocaleString('en-US')}</b>${trend}\n🧾 Orders: <b>${k.orders}</b> · AOV $${k.aov}\n⏳ Waiting to ship: ${k.processing}\n🏆 Top: ${esc(k.top_products.join(', ') || '—')}\n📉 Low stock: ${esc(k.low_stock.join(', ') || 'none')}\n🤝 New B2B leads: ${k.new_leads} (🔥 ${k.hot_leads} hot)\n\n🧠 <i>${esc($json.text.trim())}</i>`;\nreturn [{ json: { text } }];"
+      },
+      "id": "c666a43e-0b3e-4abf-af04-aab8a5d224ae",
+      "name": "Format report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "4696c4dd-8ea1-4312-9bf0-44d89db65186",
+      "name": "Send to owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1860,
+        0
+      ],
+      "webhookId": "e26153cb-449d-4b26-b8c1-9e478b364610"
+    }
+  ],
+  "connections": {
+    "Every day 09:00": {
+      "main": [
+        [
+          {
+            "node": "Read orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read orders": {
+      "main": [
+        [
+          {
+            "node": "Read order lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read order lines": {
+      "main": [
+        [
+          {
+            "node": "Read products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read products": {
+      "main": [
+        [
+          {
+            "node": "Read leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read leads": {
+      "main": [
+        [
+          {
+            "node": "Calculate KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate KPIs": {
+      "main": [
+        [
+          {
+            "node": "AI commentary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI commentary": {
+      "main": [
+        [
+          {
+            "node": "Format report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format report": {
+      "main": [
+        [
+          {
+            "node": "Send to owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI commentary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

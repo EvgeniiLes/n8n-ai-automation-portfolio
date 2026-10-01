@@ -1,0 +1,662 @@
+{
+  "name": "GearUp 04 · Order Sync & Inventory",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 4️⃣ Order → sheets → stock → alerts\nWebhook receives a new order (Shopify `orders/create` payload format).\n1. Normalize the order\n2. **Idempotency**: skip if the order was already processed (webhooks can be delivered twice)\n3. Save order + line items\n4. Decrease stock for every SKU\n5. Stock ≤ reorder level → Telegram alert to reorder\nNodes that talk to Google have retry (3×) + global error workflow.",
+        "height": 280,
+        "width": 540,
+        "color": 4
+      },
+      "id": "f0ee3e28-800b-4a7e-8e1c-79987a5c94cc",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gearup-order",
+        "options": {}
+      },
+      "id": "f1222db6-99ba-47e4-821c-beb7954de343",
+      "name": "New order webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "266f96be-03bb-4ee8-9389-1722bc50b0f0"
+    },
+    {
+      "parameters": {
+        "jsCode": "const o = $json.body || $json;\nconst lines = (o.line_items || []).map(li => ({ sku: String(li.sku || '').trim(), name: li.title || li.name || '', qty: Number(li.quantity) || 0, price: Number(li.price) || 0 }))\n  .filter(l => l.sku && l.qty > 0);\nif (!lines.length) throw new Error('Order has no valid line items: ' + (o.name || o.id));\nconst created = o.created_at ? String(o.created_at).slice(0,16).replace('T',' ') : $now.toFormat('yyyy-MM-dd HH:mm');\nreturn [{ json: {\n  order_id: String(o.name || o.id).replace('#', ''),\n  created_at: created,\n  customer_name: [o.customer?.first_name, o.customer?.last_name].filter(Boolean).join(' '),\n  customer_email: (o.email || '').toLowerCase(),\n  total: Number(o.total_price) || lines.reduce((s,l)=>s+l.qty*l.price,0),\n  status: 'processing', lines\n}}];"
+      },
+      "id": "13d5f906-785d-42e3-8abf-cada8cf462f3",
+      "name": "Normalize order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Orders"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "order_id",
+              "lookupValue": "={{ $json.order_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f823fe28-d831-4f41-8560-bf3b13bdbdcd",
+      "name": "Find existing order",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        0
+      ],
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f89d1de7-faa1-4bcc-b296-9ec0b6e8f7ec",
+              "leftValue": "={{ $json.order_id }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "63f4d414-b38e-42bb-ab41-c17bd2f305fa",
+      "name": "Already processed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "254bc71e-0768-4811-8124-25a28645eca1",
+      "name": "Skip duplicate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        880,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Orders"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "order_id": "={{ $('Normalize order').first().json.order_id }}",
+            "created_at": "={{ $('Normalize order').first().json.created_at }}",
+            "customer_name": "={{ $('Normalize order').first().json.customer_name }}",
+            "customer_email": "={{ $('Normalize order').first().json.customer_email }}",
+            "total": "={{ $('Normalize order').first().json.total }}",
+            "status": "={{ $('Normalize order').first().json.status }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "order_id",
+              "displayName": "order_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "customer_email",
+              "displayName": "customer_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total",
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8f419eb0-c96c-412d-8574-f71cc9f5bf3c",
+      "name": "Save order",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        20
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const o = $('Normalize order').first().json;\nreturn o.lines.map(l => ({ json: { order_id: o.order_id, created_at: o.created_at, ...l } }));"
+      },
+      "id": "5728d62a-657b-4cc8-a251-68b1e1e77164",
+      "name": "Split line items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "OrderLines"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "order_id": "={{ $json.order_id }}",
+            "created_at": "={{ $json.created_at }}",
+            "sku": "={{ $json.sku }}",
+            "name": "={{ $json.name }}",
+            "qty": "={{ $json.qty }}",
+            "price": "={{ $json.price }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "order_id",
+              "displayName": "order_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sku",
+              "displayName": "sku",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "qty",
+              "displayName": "qty",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "price",
+              "displayName": "price",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "031a7d2f-e6b7-4b4b-a3ea-b55daa7fa8a9",
+      "name": "Save order lines",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        -120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Products"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "sku",
+              "lookupValue": "={{ $json.sku }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "07bc0edb-604a-433f-aa71-c550115026ec",
+      "name": "Get product stock",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const line = $('Split line items').item.json;\nconst stock = Number($json.stock) || 0;\nconst reorder = Number($json.reorder_level) || 0;\nconst newStock = Math.max(0, stock - line.qty);\nreturn { json: { sku: line.sku, name: $json.name || line.name, old_stock: stock, stock: newStock, reorder_level: reorder,\n  updated_at: $now.toFormat('yyyy-MM-dd HH:mm'), low: newStock <= reorder, order_id: line.order_id } };"
+      },
+      "id": "b28418db-e980-4a0c-ab10-55208fdec746",
+      "name": "Calculate new stock",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Products"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sku": "={{ $json.sku }}",
+            "stock": "={{ $json.stock }}",
+            "updated_at": "={{ $json.updated_at }}"
+          },
+          "matchingColumns": [
+            "sku"
+          ],
+          "schema": [
+            {
+              "id": "sku",
+              "displayName": "sku",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stock",
+              "displayName": "stock",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "43f3959d-108e-4ea6-8a00-a45ef8e19dee",
+      "name": "Update stock",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1760,
+        120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "018b48a7-34d4-4fcb-83b5-980ddd5eb95f",
+              "leftValue": "={{ $('Calculate new stock').item.json.low }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "b30706a4-85e0-42ae-bc21-1ad2711eb4d4",
+      "name": "Low stock?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst s = $('Calculate new stock').item.json;\nreturn { json: { text: `📉 <b>Low stock: ${esc(s.name)}</b>\\nSKU <code>${esc(s.sku)}</code> · left <b>${s.stock}</b> (reorder level ${s.reorder_level})\\nAfter order ${esc(s.order_id)}. Time to reorder from the supplier.` } };"
+      },
+      "id": "5100cf63-4bce-4b49-80ae-71b78bdbda23",
+      "name": "Build reorder alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "0f2f7327-e6d5-4e52-911a-8e6f3f2d4919",
+      "name": "Alert: reorder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2420,
+        100
+      ],
+      "webhookId": "5fdfdf3b-a97b-48b7-99e2-75fef16f5e92"
+    }
+  ],
+  "connections": {
+    "New order webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize order": {
+      "main": [
+        [
+          {
+            "node": "Find existing order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find existing order": {
+      "main": [
+        [
+          {
+            "node": "Already processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already processed?": {
+      "main": [
+        [
+          {
+            "node": "Skip duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save order": {
+      "main": [
+        [
+          {
+            "node": "Split line items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split line items": {
+      "main": [
+        [
+          {
+            "node": "Save order lines",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get product stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get product stock": {
+      "main": [
+        [
+          {
+            "node": "Calculate new stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate new stock": {
+      "main": [
+        [
+          {
+            "node": "Update stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update stock": {
+      "main": [
+        [
+          {
+            "node": "Low stock?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low stock?": {
+      "main": [
+        [
+          {
+            "node": "Build reorder alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build reorder alert": {
+      "main": [
+        [
+          {
+            "node": "Alert: reorder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

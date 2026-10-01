@@ -1,0 +1,185 @@
+{
+  "name": "GearUp 00 · Error Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🚨 Global error handler\nSet this workflow as **Error workflow** in Settings of every other GearUp workflow.\nAny failed execution → Telegram alert to the owner + row in `ErrorLog` sheet.",
+        "height": 180,
+        "width": 420,
+        "color": 3
+      },
+      "id": "7ac8d5a0-84d0-460a-8627-9deae5dba2ef",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        -260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6197a77d-1f16-497c-a75b-c9423268498d",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst e = $json;\nconst wfName = e.workflow?.name || 'unknown';\nconst node = e.execution?.lastNodeExecuted || e.trigger?.error?.node?.name || '-';\nconst msg = e.execution?.error?.message || e.trigger?.error?.message || 'Unknown error';\nconst url = e.execution?.url || '';\nreturn [{ json: {\n  ts: new Date().toISOString().slice(0,16).replace('T',' '),\n  workflow: wfName, node, error: msg.slice(0, 500), execution_url: url,\n  text: `🚨 <b>Workflow failed</b>\\n<b>${esc(wfName)}</b> → node <code>${esc(node)}</code>\\n\\n${esc(msg.slice(0,300))}` + (url ? `\\n\\n<a href=\"${url}\">Open execution</a>` : '')\n}}];"
+      },
+      "id": "840666b8-2673-4654-94f7-24dc10f31daa",
+      "name": "Format error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "d5cc8c73-39e2-4d29-9744-1c4374664819",
+      "name": "Alert owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        -100
+      ],
+      "webhookId": "c2a360ae-a00d-450a-8e84-bd3c8964e8ff"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "ErrorLog"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ts": "={{ $json.ts }}",
+            "workflow": "={{ $json.workflow }}",
+            "node": "={{ $json.node }}",
+            "error": "={{ $json.error }}",
+            "execution_url": "={{ $json.execution_url }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ts",
+              "displayName": "ts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "workflow",
+              "displayName": "workflow",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "node",
+              "displayName": "node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "execution_url",
+              "displayName": "execution_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cb4e9783-b101-40c1-b45b-0034f3ba1691",
+      "name": "Log to ErrorLog",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Format error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format error": {
+      "main": [
+        [
+          {
+            "node": "Alert owner",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to ErrorLog",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

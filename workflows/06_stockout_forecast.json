@@ -1,0 +1,413 @@
+{
+  "name": "GearUp 06 · Stock-out Forecast & Reorder Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📦 Stock-out forecast (daily 08:30)\nNot a simple \"stock < X\" alert. For every SKU:\n1. **Sales velocity** from the last 28 days\n2. **Incoming supply**: POs in transit / in production with ETA (`Incoming` sheet)\n3. **Supplier lead time & MOQ** (`Suppliers` sheet)\n4. Day-by-day simulation for 90 days → exact stock-out date\n\n🔴 runs out before supply arrives (+ days without stock and lost revenue)\n🟠 order now (qty rounded to MOQ, order-by date)\n🟢 would run out, but an incoming PO covers it\nClaude adds a short action plan → Telegram.",
+        "height": 330,
+        "width": 560,
+        "color": 4
+      },
+      "id": "f0",
+      "name": "Note 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "f1",
+      "name": "Every day 08:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Products"
+        },
+        "options": {}
+      },
+      "id": "f2",
+      "name": "Read products",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "OrderLines"
+        },
+        "options": {}
+      },
+      "id": "f3",
+      "name": "Read order lines",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Suppliers"
+        },
+        "options": {}
+      },
+      "id": "f4",
+      "name": "Read suppliers",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Incoming"
+        },
+        "options": {}
+      },
+      "id": "f5",
+      "name": "Read incoming",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Forecast stock-outs\" (Run once for all items)\nconst products = $('Read products').all().map(i => i.json);\nconst lines = $('Read order lines').all().map(i => i.json);\nconst suppliers = $('Read suppliers').all().map(i => i.json);\nconst incoming = $('Read incoming').all().map(i => i.json)\n  .filter(r => r.sku && ['in_transit', 'in_production', 'ordered'].includes(String(r.status).trim()));\n\nconst WINDOW = 28;          // days of sales history for velocity\nconst SAFETY = 7;           // safety buffer, days\nconst HORIZON = 90;         // forecast horizon, days\nconst COVER = 30;           // new order should cover this many days after arrival\nconst today = $now.startOf('day');\nconst parseDate = v => { const s = String(v ?? '').trim(); let m;\n  if ((m = s.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/))) return DateTime.fromObject({ year: +m[1], month: +m[2], day: +m[3] });\n  if ((m = s.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})/))) return DateTime.fromObject({ year: +m[3], month: +m[2], day: +m[1] });\n  if ((m = s.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})/))) return DateTime.fromObject({ year: +m[3], month: +m[1], day: +m[2] });\n  if (/^\\d{5}(\\.\\d+)?$/.test(s)) return DateTime.fromISO('1899-12-30').plus({ days: Math.floor(+s) });\n  return DateTime.fromISO(s); };\n// works with ISO, dd.mm.yyyy, mm/dd/yyyy and Sheets serial dates (any spreadsheet locale)\nconst dayIdx = s => Math.round(parseDate(s).startOf('day').diff(today, 'days').days);\nconst fmt = n => today.plus({ days: n }).toFormat('LLL d');\n\nconst sold = {};\nfor (const l of lines) {\n  const d = dayIdx(l.created_at);\n  if (d <= 0 && d > -WINDOW) sold[l.sku] = (sold[l.sku] || 0) + Number(l.qty || 0);\n}\n\nconst critical = [], orderNow = [], covered = [];\nfor (const p of products) {\n  const sku = p.sku, stock = Number(p.stock) || 0, price = Number(p.price) || 0;\n  const vel = (sold[sku] || 0) / WINDOW;\n  if (vel <= 0) continue;\n  const sup = suppliers.find(s => s.sku === sku) || {};\n  const lead = Number(sup.lead_time_days) || 21;\n  const moq = Number(sup.min_order_qty) || 1;\n  const pos = incoming.filter(r => r.sku === sku)\n    .map(r => ({ po: r.po_number, qty: Number(r.qty) || 0, status: r.status, day: Math.max(0, dayIdx(r.eta)) }))\n    .sort((a, b) => a.day - b.day);\n\n  // day-by-day simulation: with and without incoming supply\n  let s1 = stock, s0 = stock, outWith = null, outWithout = null, stockAtLead = null;\n  for (let d = 1; d <= HORIZON; d++) {\n    for (const po of pos) if (po.day === d) s1 += po.qty;\n    s1 -= vel; s0 -= vel;\n    if (outWith === null && s1 <= 0) outWith = d;\n    if (outWithout === null && s0 <= 0) outWithout = d;\n    if (d === lead) stockAtLead = Math.max(0, s1);\n  }\n  const incomingQty = pos.reduce((s, x) => s + x.qty, 0);\n  const need = Math.ceil(vel * (lead + COVER) - (stockAtLead ?? 0) - pos.filter(x => x.day > lead).reduce((s, x) => s + x.qty, 0));\n  const orderQty = need > 0 ? Math.max(moq, Math.ceil(need / moq) * moq) : 0;\n  const base = { sku, name: p.name, stock, vel: Math.round(vel * 10) / 10, lead, supplier: sup.supplier || '—', pos, orderQty, price };\n\n  if (outWith !== null && outWith <= lead) {\n    // runs out before any new order could arrive\n    const nextPo = pos.find(x => x.day > outWith);\n    const backDay = nextPo ? Math.min(nextPo.day, lead) : lead;\n    const gap = Math.max(1, backDay - outWith);\n    critical.push({ ...base, outDay: outWith, outDate: fmt(outWith), nextPo, gap, backDate: fmt(backDay),\n      lost: Math.round(gap * vel * price) });\n  } else if (outWith !== null && outWith <= lead + SAFETY) {\n    orderNow.push({ ...base, outDay: outWith, outDate: fmt(outWith), orderBy: fmt(Math.max(0, outWith - lead)) });\n  } else if (outWithout !== null && outWithout <= lead + SAFETY && incomingQty > 0) {\n    covered.push({ ...base, outDayWithout: outWithout, outDate: fmt(outWithout) });\n  }\n}\ncritical.sort((a, b) => a.outDay - b.outDay);\norderNow.sort((a, b) => a.outDay - b.outDay);\nreturn [{ json: { date: today.toFormat('yyyy-MM-dd'), critical, orderNow, covered,\n  total: critical.length + orderNow.length + covered.length,\n  lost_total: critical.reduce((s, c) => s + c.lost, 0) } }];\n"
+      },
+      "id": "f6",
+      "name": "Forecast stock-outs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "f7",
+      "name": "Anything to report?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Stock-out forecast:\n{{ JSON.stringify({critical: $json.critical.map(c=>({name:c.name,stock:c.stock,per_day:c.vel,out:c.outDate,days_without_stock:c.gap,lost_usd:c.lost,next_po:c.nextPo,supplier:c.supplier,lead_days:c.lead})), order_now: $json.orderNow.map(c=>({name:c.name,out:c.outDate,order_qty:c.orderQty,order_by:c.orderBy,supplier:c.supplier}))}) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are the supply planner of GearUp, an online fitness equipment store. Based on the forecast, write an action plan for today: max 3 short numbered actions, most money-saving first (e.g. ask supplier to expedite or split shipment, air freight part of a PO, temporarily pause ads or raise price on items about to run out, place the order). Mention product names and numbers. Plain text, no markdown, max 70 words."
+            }
+          ]
+        }
+      },
+      "id": "f8",
+      "name": "AI action plan",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1560,
+        -20
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 600,
+          "temperature": 0.3
+        }
+      },
+      "id": "f9",
+      "name": "Claude",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1580,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Format alert\"\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst f = $('Forecast stock-outs').first().json;\nconst st = { in_transit: 'in transit', in_production: 'in production', ordered: 'ordered' };\nconst L = [];\nL.push(`📦 <b>GearUp · stock-out forecast</b> (${f.date})`);\nL.push(`<i>Based on current stock, last 28 days of sales and supplier deliveries</i>`);\nif (f.critical.length) {\n  L.push('', `🔴 <b>Will run out before supply arrives (${f.critical.length})</b>`);\n  for (const c of f.critical) {\n    const po = c.nextPo ? `${esc(c.nextPo.po)} (${c.nextPo.qty} pcs, ${st[c.nextPo.status] || c.nextPo.status}) arrives ${c.backDate}` : `no incoming supply, earliest new delivery ${c.backDate} (${c.lead}d lead time)`;\n    L.push(`• <b>${esc(c.name)}</b>: ${c.stock} left, sells ${c.vel}/day → out <b>${c.outDate}</b>. ${po} → <b>${c.gap} days</b> without stock, ~$${c.lost.toLocaleString('en-US')} lost sales.${c.orderQty ? ` Order ${c.orderQty} pcs from ${esc(c.supplier)}.` : ''}`);\n  }\n}\nif (f.orderNow.length) {\n  L.push('', `🟠 <b>Order now (${f.orderNow.length})</b>`);\n  for (const c of f.orderNow)\n    L.push(`• <b>${esc(c.name)}</b>: out ${c.outDate}, lead time ${c.lead}d → order <b>${c.orderQty} pcs</b> from ${esc(c.supplier)} by <b>${c.orderBy}</b>.`);\n}\nif (f.covered.length) {\n  L.push('', `🟢 <b>Covered by incoming supply (${f.covered.length})</b>`);\n  for (const c of f.covered)\n    L.push(`• ${esc(c.name)}: would run out ${c.outDate}, but ${c.pos.map(p => `${esc(p.po)} (${p.qty} pcs, ${st[p.status] || p.status})`).join(', ')} covers it.`);\n}\nconst ai = String($json.text || '').replace(/\\*\\*/g, '').replace(/^#+\\s*/gm, '').trim();\nif (ai) L.push('', `🧠 <i>${esc(ai)}</i>`);\nreturn [{ json: { text: L.join('\\n').slice(0, 4000) } }];\n"
+      },
+      "id": "f10",
+      "name": "Format alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1880,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "f11",
+      "name": "Send to owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        -20
+      ],
+      "webhookId": "6b3f0c1e-2a55-4c1e-9d11-7a0e3b6a9f06"
+    },
+    {
+      "parameters": {},
+      "id": "f12",
+      "name": "All good",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Every day 08:30": {
+      "main": [
+        [
+          {
+            "node": "Read products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read products": {
+      "main": [
+        [
+          {
+            "node": "Read order lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read order lines": {
+      "main": [
+        [
+          {
+            "node": "Read suppliers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read suppliers": {
+      "main": [
+        [
+          {
+            "node": "Read incoming",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read incoming": {
+      "main": [
+        [
+          {
+            "node": "Forecast stock-outs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forecast stock-outs": {
+      "main": [
+        [
+          {
+            "node": "Anything to report?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to report?": {
+      "main": [
+        [
+          {
+            "node": "AI action plan",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "All good",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI action plan": {
+      "main": [
+        [
+          {
+            "node": "Format alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert": {
+      "main": [
+        [
+          {
+            "node": "Send to owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI action plan",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "active": false
+}
