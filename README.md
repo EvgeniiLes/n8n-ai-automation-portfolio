@@ -15,23 +15,27 @@ A set of AI automation and agent workflows built with **n8n** and the **Claude A
 | 04 | Order Sync & Inventory | Order webhook (Shopify-style) → duplicate protection → order saved → stock deducted → reorder alert |
 | 05 | Daily AI Report | Every day at 09:00: KPIs computed in code, Claude adds a short commentary and 2 action items, report sent to Telegram |
 | 06 | Stock-out Forecast | Combines sales velocity, incoming purchase orders, supplier lead time and MOQ to predict the exact day each SKU runs out, with a Telegram alert and Claude's action plan |
+| 07 | RAG Knowledge Ingest | Documents → chunking → OpenAI embeddings → Qdrant vector store, with the source file stored as metadata |
+| 08 | RAG Knowledge Assistant | Telegram agent that answers **only from the knowledge base**, cites the source file, and logs unanswered questions to a `KB_Gaps` sheet |
 
-All workflows import cleanly into n8n 2.40+ with no node-parameter errors, and the Code-node logic was run against the test payloads in this repo.
+Workflows 00–06 import cleanly into n8n 2.40+ with no node-parameter errors, and their Code-node logic was run against test payloads. Workflows 07–08 (RAG) were imported into n8n 2.41 and checked against the installed node definitions (node types, versions and parameters all valid); they have not been run end-to-end against a live Qdrant/OpenAI account, so connect your own Qdrant, OpenAI, Anthropic and Telegram credentials to try them.
 
 ## Repository structure
 
 ```
-workflows/        7 JSON files, ready to import into n8n (with placeholders for your own Sheet ID / chat ID)
+workflows/        9 JSON files, ready to import into n8n (with placeholders for your own Sheet ID / chat ID)
 screenshots/       canvas previews from a test n8n instance (credentials are fake)
-case-studies/      4 detailed write-ups with results, architecture and screenshots for the strongest cases
+case-studies/      5 detailed write-ups with architecture, features and screenshots
+knowledge-base/    sample documents for the RAG assistant demo
 ```
 
 ## Stack
 
-n8n · Claude (Anthropic API) · AI Agent + tools · Google Sheets as CRM/DB · Telegram Bot API · Gmail · Webhooks · JavaScript
+n8n · Claude (Anthropic API) · AI Agent + tools · RAG / Qdrant vector store · OpenAI embeddings · Google Sheets as CRM/DB · Telegram Bot API · Gmail · Webhooks · JavaScript
 
 ## Case studies
 
+- [RAG Knowledge Assistant with Source Citations](case-studies/05-rag-knowledge-assistant.md) *(new)*
 - [Stock-out Forecast & Reorder Alerts](case-studies/01-stockout-forecast.md)
 - [AI Customer Support Bot](case-studies/02-support-bot.md)
 - [AI Lead Qualification & CRM Routing](case-studies/03-lead-qualification.md)
