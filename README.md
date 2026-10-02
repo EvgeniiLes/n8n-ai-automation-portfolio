@@ -40,6 +40,7 @@ n8n · Claude (Anthropic API) · AI Agent + tools · RAG / Qdrant vector store �
 - [AI Customer Support Bot](case-studies/02-support-bot.md)
 - [AI Lead Qualification & CRM Routing](case-studies/03-lead-qualification.md)
 - [Owner AI Agent & Daily Business Report](case-studies/04-owner-agent-report.md)
+- [E-commerce Reporting & Auto-Reorder, real work for a Wildberries and a landing store (anonymized)](case-studies/06-wb-reporting-and-auto-reorder.md)
 
 ## Related project
 
